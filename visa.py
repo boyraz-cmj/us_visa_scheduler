@@ -6,9 +6,10 @@ import configparser
 from datetime import datetime
 
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait as Wait
+from selenium.webdriver.support.wait import WebDriverWait as Wait
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -93,7 +94,7 @@ def send_notification(title, msg):
             print(response.body)
             print(response.headers)
         except Exception as e:
-            print(e.message)
+            print(str(e))
     if PUSHOVER_TOKEN:
         url = "https://api.pushover.net/1/messages.json"
         data = {
@@ -138,7 +139,7 @@ def auto_action(label, find_by, el_type, action, value, sleep_time=0):
             return 0
     print("\t\tCheck!")
     if sleep_time:
-        time.sleep(sleep_time)
+        time.sleep(float(sleep_time))
 
 
 def start_process():
@@ -182,11 +183,19 @@ def reschedule(date):
 
 
 def get_date():
-    # Requesting to get the whole available dates
-    session = driver.get_cookie("_yatri_session")["value"]
-    script = JS_SCRIPT % (str(DATE_URL), session)
-    content = driver.execute_script(script)
-    return json.loads(content)
+    try:
+        # Requesting to get the whole available dates
+        session = driver.get_cookie("_yatri_session")
+        if session and session.get("value"):
+            script = JS_SCRIPT % (str(DATE_URL), session["value"])
+            content = driver.execute_script(script)
+            return json.loads(content)
+        else:
+            print("Session not found, restarting...")
+            return None
+    except Exception as e:
+        print(f"Error getting dates: {str(e)}")
+        return None
 
 def get_time(date):
     time_url = TIME_URL % date
@@ -230,7 +239,14 @@ def info_logger(file_path, log):
 
 
 if LOCAL_USE:
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    driver = webdriver.Chrome(options=chrome_options)
+    driver.execute_cdp_cmd('Network.setUserAgentOverride', {"userAgent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'})
 else:
     driver = webdriver.Remote(command_executor=HUB_ADDRESS, options=webdriver.ChromeOptions())
 
@@ -273,7 +289,7 @@ if __name__ == "__main__":
                     # A good date to schedule for
                     END_MSG_TITLE, msg = reschedule(date)
                     break
-                RETRY_WAIT_TIME = random.randint(RETRY_TIME_L_BOUND, RETRY_TIME_U_BOUND)
+                RETRY_WAIT_TIME = random.randint(int(RETRY_TIME_L_BOUND), int(RETRY_TIME_U_BOUND))
                 t1 = time.time()
                 total_time = t1 - t0
                 msg = "\nWorking Time:  ~ {:.2f} minutes".format(total_time/minute)
